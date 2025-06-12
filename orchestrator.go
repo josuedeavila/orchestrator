@@ -3,28 +3,11 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/josuedeavila/taskflow"
 )
-
-// Logger é uma interface que define os métodos de logging utilizados pelo orquestrador
-type Logger struct {
-	*slog.Logger
-}
-
-func (l *Logger) Log(v ...any) {
-	if l.Logger != nil {
-		l.Logger.Info("TaskFlow", "message", fmt.Sprint(v...))
-	} else {
-		// Logger não está configurado, apenas imprime no console
-		fmt.Println("TaskFlow:", fmt.Sprint(v...))
-	}
-}
-
-var logger = slog.Default()
 
 // PipelineConfig define a configuração para uma pipeline específica
 type PipelineConfig struct {
@@ -49,29 +32,8 @@ type PipelineOrchestrator struct {
 	wg         sync.WaitGroup
 	mu         sync.RWMutex
 	logger     taskflow.Logger
-	metrics    *OrchestratorMetrics
 }
 
-// OrchestratorMetrics mantém métricas de execução
-type OrchestratorMetrics struct {
-	mu                sync.RWMutex
-	ExecutionsTotal   map[string]int64
-	ExecutionsSuccess map[string]int64
-	ExecutionsError   map[string]int64
-	LastExecution     map[string]time.Time
-	LastError         map[string]error
-}
-
-// NewOrchestratorMetrics cria uma nova instância de métricas
-func NewOrchestratorMetrics() *OrchestratorMetrics {
-	return &OrchestratorMetrics{
-		ExecutionsTotal:   make(map[string]int64),
-		ExecutionsSuccess: make(map[string]int64),
-		ExecutionsError:   make(map[string]int64),
-		LastExecution:     make(map[string]time.Time),
-		LastError:         make(map[string]error),
-	}
-}
 
 // NewPipelineOrchestrator cria uma nova instância do orquestrador
 func NewPipelineOrchestrator() *PipelineOrchestrator {
@@ -80,10 +42,7 @@ func NewPipelineOrchestrator() *PipelineOrchestrator {
 		semaphores: make(map[string]chan struct{}),
 		tickers:    make(map[string]*time.Ticker),
 		shutdown:   make(chan struct{}),
-		logger: &Logger{
-			Logger: logger,
-		},
-		metrics: NewOrchestratorMetrics(),
+		logger:     taskflow.NoOpLogger{},
 	}
 }
 
@@ -124,13 +83,6 @@ func (o *PipelineOrchestrator) AddPipeline(config *PipelineConfig) error {
 
 	o.configs[config.Name] = config
 	o.semaphores[config.Name] = make(chan struct{}, config.MaxConcurrency)
-
-	// Inicializa métricas
-	o.metrics.mu.Lock()
-	o.metrics.ExecutionsTotal[config.Name] = 0
-	o.metrics.ExecutionsSuccess[config.Name] = 0
-	o.metrics.ExecutionsError[config.Name] = 0
-	o.metrics.mu.Unlock()
 
 	o.logger.Log(fmt.Sprintf("Pipeline '%s' adicionada com intervalo de %v", config.Name, config.Interval))
 	return nil
@@ -242,10 +194,6 @@ func (o *PipelineOrchestrator) schedulePipelineExecution(ctx context.Context, na
 
 // executePipeline executa uma pipeline com retry e timeout
 func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string, config *PipelineConfig) {
-	o.updateMetrics(func(m *OrchestratorMetrics) {
-		m.ExecutionsTotal[name]++
-		m.LastExecution[name] = time.Now()
-	})
 
 	var lastErr error
 	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
@@ -255,10 +203,6 @@ func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string,
 		cancel()
 
 		if err == nil {
-			o.updateMetrics(func(m *OrchestratorMetrics) {
-				m.ExecutionsSuccess[name]++
-			})
-
 			if config.OnSuccess != nil {
 				config.OnSuccess(ctx, result)
 			}
@@ -279,12 +223,6 @@ func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string,
 			}
 		}
 	}
-
-	// Todas as tentativas falharam
-	o.updateMetrics(func(m *OrchestratorMetrics) {
-		m.ExecutionsError[name]++
-		m.LastError[name] = lastErr
-	})
 
 	if config.OnError != nil {
 		config.OnError(ctx, lastErr)
@@ -323,31 +261,6 @@ func (o *PipelineOrchestrator) runSinglePipeline(ctx context.Context, name strin
 	return nil, nil
 }
 
-// updateMetrics atualiza as métricas de forma thread-safe
-func (o *PipelineOrchestrator) updateMetrics(updateFn func(*OrchestratorMetrics)) {
-	o.metrics.mu.Lock()
-	defer o.metrics.mu.Unlock()
-	updateFn(o.metrics)
-}
-
-// GetMetrics retorna uma cópia das métricas atuais
-func (o *PipelineOrchestrator) GetMetrics() map[string]interface{} {
-	o.metrics.mu.RLock()
-	defer o.metrics.mu.RUnlock()
-
-	result := make(map[string]interface{})
-	for name := range o.configs {
-		result[name] = map[string]interface{}{
-			"executions_total":   o.metrics.ExecutionsTotal[name],
-			"executions_success": o.metrics.ExecutionsSuccess[name],
-			"executions_error":   o.metrics.ExecutionsError[name],
-			"last_execution":     o.metrics.LastExecution[name],
-			"last_error":         o.metrics.LastError[name],
-		}
-	}
-	return result
-}
-
 // GetPipelineStatus retorna o status de uma pipeline específica
 func (o *PipelineOrchestrator) GetPipelineStatus(name string) (map[string]interface{}, error) {
 	o.mu.RLock()
@@ -358,20 +271,12 @@ func (o *PipelineOrchestrator) GetPipelineStatus(name string) (map[string]interf
 		return nil, fmt.Errorf("pipeline '%s' not found", name)
 	}
 
-	o.metrics.mu.RLock()
-	defer o.metrics.mu.RUnlock()
-
 	return map[string]interface{}{
-		"name":               config.Name,
-		"enabled":            config.Enabled,
-		"interval":           config.Interval,
-		"max_concurrency":    config.MaxConcurrency,
-		"max_retries":        config.MaxRetries,
-		"executions_total":   o.metrics.ExecutionsTotal[name],
-		"executions_success": o.metrics.ExecutionsSuccess[name],
-		"executions_error":   o.metrics.ExecutionsError[name],
-		"last_execution":     o.metrics.LastExecution[name],
-		"last_error":         o.metrics.LastError[name],
+		"name":            config.Name,
+		"enabled":         config.Enabled,
+		"interval":        config.Interval,
+		"max_concurrency": config.MaxConcurrency,
+		"max_retries":     config.MaxRetries,
 	}, nil
 }
 
