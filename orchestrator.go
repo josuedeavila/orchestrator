@@ -195,7 +195,7 @@ func (o *PipelineOrchestrator) schedulePipelineExecution(ctx context.Context, na
 func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string, config *PipelineConfig) {
 
 	var lastErr error
-	for attempt := 1; attempt <= config.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
 		pipelineCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 
 		result, err := o.runSinglePipeline(pipelineCtx, name, config)
