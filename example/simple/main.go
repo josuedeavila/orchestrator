@@ -26,10 +26,10 @@ func main() {
 	logger := &logger{
 		Logger: slog.Default(),
 	}
-	// Cria o orquestrador
+	// Create the orchestrator
 	orc := orchestrator.NewPipelineOrchestrator().WithLogger(logger)
 
-	// Pipeline de monitoramento (inicialmente desabilitada)
+	// Monitoring pipeline (initially disabled)
 	updateOfferConfig := &orchestrator.PipelineConfig{
 		Name:            "update_offer",
 		Interval:        10 * time.Second,
@@ -40,52 +40,52 @@ func main() {
 		PipelineBuilder: buildPipeline(logger),
 		OnSuccess: func(ctx context.Context, result any) {
 			if status, ok := result.(string); ok {
-				logger.Log(fmt.Sprintf("💚 Pipeline executada com %s", status))
+				logger.Log(fmt.Sprintf("💚 Pipeline executed with %s", status))
 			}
 		},
 		OnError: func(ctx context.Context, err error) {
-			logger.Log(fmt.Sprintf("❌ Erro na execução da pipeline: %v", err))
+			logger.Log(fmt.Sprintf("❌ Error in pipeline execution: %v", err))
 		},
 	}
 
-	// Adiciona as pipelines
+	// Add the pipelines
 	configs := []*orchestrator.PipelineConfig{
 		updateOfferConfig,
 	}
 	for _, config := range configs {
 		if err := orc.AddPipeline(config); err != nil {
-			log.Fatalf("Erro ao adicionar pipeline %s: %v", config.Name, err)
+			log.Fatalf("Error adding pipeline %s: %v", config.Name, err)
 		}
 	}
 
-	// Inicia o orquestrador
+	// Start the orchestrator
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if err := orc.Start(ctx); err != nil {
-		log.Fatalf("Erro ao iniciar orquestrador: %v", err)
+		log.Fatalf("Error starting orchestrator: %v", err)
 	}
 
-	logger.Log("🚀 Orquestrador iniciado!")
+	logger.Log("🚀 Orchestrator started!")
 	logger.Log(fmt.Sprintf("📋 Pipelines: %v", orc.ListPipelines()))
 
-	// Demonstra controle dinâmico das pipelines
+	// Demonstrate dynamic pipeline control
 	go func() {
 		time.Sleep(3 * time.Second)
 		orc.EnablePipeline("update_offer")
 	}()
 
-	// Executa por 2 minutos
+	// Run for 2 minutes
 	time.Sleep(2 * time.Minute)
 
-	// Encerra graciosamente
-	logger.Log("🛑 Encerrando orquestrador...")
+	// Graceful shutdown
+	logger.Log("🛑 Shutting down orchestrator...")
 	cancel()
 
 	if err := orc.Shutdown(5 * time.Second); err != nil {
-		logger.Log(fmt.Sprintf("Erro no shutdown: %v", err))
+		logger.Log(fmt.Sprintf("Error during shutdown: %v", err))
 	} else {
-		logger.Log("✅ Orquestrador encerrado com sucesso!")
+		logger.Log("✅ Orchestrator shutdown successfully!")
 	}
 }
 
@@ -93,57 +93,57 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 	client := http.DefaultClient
 	return func(ctx context.Context) ([]taskflow.Executable, error) {
 		getEvents := taskflow.NewTask("get_events", func(ctx context.Context, _ any) ([]*Event, error) {
-			logger.Log("🔍 Buscando eventos")
-			time.Sleep(2 * time.Second) // Simula um atraso na busca de eventos
+			logger.Log("🔍 Fetching events")
+			time.Sleep(2 * time.Second) // Simulate delay in fetching events
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/events", nil)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Erro ao criar requisição: %v", err))
+				logger.Log(fmt.Sprintf("❌ Error creating request: %v", err))
 				return nil, err
 			}
 			res, err := client.Do(req)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Erro ao buscar eventos: %v", err))
+				logger.Log(fmt.Sprintf("❌ Error fetching events: %v", err))
 				return nil, err
 			}
 			defer res.Body.Close()
 			if res.StatusCode != http.StatusOK {
-				err := fmt.Errorf("status %d ao buscar eventos", res.StatusCode)
-				logger.Log(fmt.Sprintf("❌ Erro ao buscar eventos: %v", err))
+				err := fmt.Errorf("status %d when fetching events", res.StatusCode)
+				logger.Log(fmt.Sprintf("❌ Error fetching events: %v", err))
 				return nil, err
 			}
-			logger.Log("✅ Eventos obtidos com sucesso")
-			// Simula o processamento dos eventos
+			logger.Log("✅ Events obtained successfully")
+			// Simulate event processing
 			return []*Event{
-				{ID: "1", Name: "Evento 1", OfferID: "offer-123"},
-				{ID: "2", Name: "Evento 2", OfferID: "offer-456"},
-				{ID: "3", Name: "Evento 3", OfferID: "offer-789"},
+				{ID: "1", Name: "Event 1", OfferID: "offer-123"},
+				{ID: "2", Name: "Event 2", OfferID: "offer-456"},
+				{ID: "3", Name: "Event 3", OfferID: "offer-789"},
 			}, nil
 		})
 
 		getCredentials := taskflow.NewTask("get_credentials", func(ctx context.Context, events []*Event) (*EventsAndCredentials, error) {
-			logger.Log("🔍 Buscando credenciais")
+			logger.Log("🔍 Fetching credentials")
 			time.Sleep(2 * time.Second)
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/credentials", nil)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Erro ao criar requisição: %v", err))
+				logger.Log(fmt.Sprintf("❌ Error creating request: %v", err))
 				return nil, err
 			}
 
 			res, err := client.Do(req)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Erro ao buscar credenciais: %v", err))
+				logger.Log(fmt.Sprintf("❌ Error fetching credentials: %v", err))
 				return nil, err
 			}
 			defer res.Body.Close()
 			if res.StatusCode != http.StatusOK {
-				err := fmt.Errorf("status %d ao buscar credenciais", res.StatusCode)
-				logger.Log(fmt.Sprintf("❌ Erro ao buscar credenciais: %v", err))
+				err := fmt.Errorf("status %d when fetching credentials", res.StatusCode)
+				logger.Log(fmt.Sprintf("❌ Error fetching credentials: %v", err))
 				return nil, err
 			}
-			logger.Log("✅ Credenciais obtidas com sucesso")
+			logger.Log("✅ Credentials obtained successfully")
 
 			var creds Credentials
-			// Simula o preenchimento das credenciais
+			// Simulate credential filling
 			creds.Token = "example-token"
 			return &EventsAndCredentials{
 				Events:      events,
@@ -152,53 +152,53 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 		}).After(getEvents)
 
 		sendToChannel := taskflow.NewTask("send_to_channel", func(ctx context.Context, input *EventsAndCredentials) ([]*Event, error) {
-			logger.Log("📤 Enviando eventos para o canal")
+			logger.Log("📤 Sending events to channel")
 			time.Sleep(2 * time.Second)
 			b, err := json.Marshal(input.Events)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Erro ao serializar eventos: %v", err))
+				logger.Log(fmt.Sprintf("❌ Error serializing events: %v", err))
 				return nil, err
 			}
 			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:8080/send", bytes.NewBuffer(b))
 			req.Header.Set("Authorization", "Bearer "+input.Credentials.Token)
 			res, err := client.Do(req)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Erro ao enviar eventos: %v", err))
+				logger.Log(fmt.Sprintf("❌ Error sending events: %v", err))
 				return nil, err
 			}
 			defer res.Body.Close()
 			if res.StatusCode != http.StatusOK {
-				err := fmt.Errorf("status %d ao enviar eventos", res.StatusCode)
-				logger.Log(fmt.Sprintf("❌ Erro ao enviar eventos: %v", err))
+				err := fmt.Errorf("status %d when sending events", res.StatusCode)
+				logger.Log(fmt.Sprintf("❌ Error sending events: %v", err))
 				return nil, err
 			}
-			logger.Log("✅ Eventos enviados com sucesso")
-			// Simula o envio bem-sucedido
+			logger.Log("✅ Events sent successfully")
+			// Simulate successful sending
 
 			return input.Events, nil
 		}).After(getCredentials)
 
 		updateOfferGenerateFunc := func(ctx context.Context, events []*Event) ([]taskflow.TaskFunc[*Event, string], error) {
-			logger.Log("FanOutTask: Gerando funções de fan-out para atualização de ofertas...")
+			logger.Log("FanOutTask: Generating fan-out functions for offer updates...")
 			time.Sleep(2 * time.Second)
 			fns := make([]taskflow.TaskFunc[*Event, string], 0, len(events))
 			for _, event := range events {
 				fns = append(fns, func(ctx context.Context, _ *Event) (string, error) {
-					logger.Log(fmt.Sprintf("FanOutTask: Processando atualização de oferta %s...", event.OfferID))
+					logger.Log(fmt.Sprintf("FanOutTask: Processing offer update %s...", event.OfferID))
 
 					req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("http://localhost:8080/offers/%s", event.OfferID), nil)
 					resp, err := client.Do(req)
 					if err != nil {
-						logger.Log(fmt.Sprintf("❌ Erro ao atualizar offerta %s: %v", event.OfferID, err))
+						logger.Log(fmt.Sprintf("❌ Error updating offer %s: %v", event.OfferID, err))
 						return "", err
 					}
 					defer resp.Body.Close()
 					if resp.StatusCode != http.StatusOK {
-						err := fmt.Errorf("status %d ao atualizar oferta %s", resp.StatusCode, event.ID)
-						logger.Log(fmt.Sprintf("❌ Erro ao atualizar oferta %s: %v", event.OfferID, err))
+						err := fmt.Errorf("status %d when updating offer %s", resp.StatusCode, event.ID)
+						logger.Log(fmt.Sprintf("❌ Error updating offer %s: %v", event.OfferID, err))
 						return "", err
 					}
-					logger.Log(fmt.Sprintf("✔️ Oferta %s atualizado com sucesso", event.OfferID))
+					logger.Log(fmt.Sprintf("✔️ Offer %s updated successfully", event.OfferID))
 					return event.OfferID, nil
 				})
 			}
@@ -208,9 +208,9 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 
 		updateOfferfanInFunc := func(ctx context.Context, results []string) (string, error) {
 			for _, result := range results {
-				logger.Log(fmt.Sprintf("FanOutTask: Resultado recebido: %s", result))
+				logger.Log(fmt.Sprintf("FanOutTask: Result received: %s", result))
 			}
-			logger.Log("FanOutTask: Consolidando resultados...")
+			logger.Log("FanOutTask: Consolidating results...")
 			return "success", nil
 		}
 
@@ -221,26 +221,26 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 		}
 
 		updateEventGenerateFunc := func(ctx context.Context, events []*Event) ([]taskflow.TaskFunc[*Event, string], error) {
-			logger.Log("FanOutTask: Gerando funções de fan-out para atualização de evenos...")
+			logger.Log("FanOutTask: Generating fan-out functions for event updates...")
 			time.Sleep(2 * time.Second)
 			fns := make([]taskflow.TaskFunc[*Event, string], 0, len(events))
 			for _, event := range events {
 				fns = append(fns, func(ctx context.Context, _ *Event) (string, error) {
-					logger.Log(fmt.Sprintf("FanOutTask: Processando atualização de evento %s...", event.ID))
+					logger.Log(fmt.Sprintf("FanOutTask: Processing event update %s...", event.ID))
 
 					req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("http://localhost:8080/events/%s", event.ID), nil)
 					resp, err := client.Do(req)
 					if err != nil {
-						logger.Log(fmt.Sprintf("❌ Erro ao atualizar evento %s: %v", event.ID, err))
+						logger.Log(fmt.Sprintf("❌ Error updating event %s: %v", event.ID, err))
 						return "", err
 					}
 					defer resp.Body.Close()
 					if resp.StatusCode != http.StatusOK {
-						err := fmt.Errorf("status %d ao atualizar evento %s", resp.StatusCode, event.ID)
-						logger.Log(fmt.Sprintf("❌ Erro ao atualizar evento %s: %v", event.ID, err))
+						err := fmt.Errorf("status %d when updating event %s", resp.StatusCode, event.ID)
+						logger.Log(fmt.Sprintf("❌ Error updating event %s: %v", event.ID, err))
 						return "", err
 					}
-					logger.Log(fmt.Sprintf("✔️ Evento %s atualizado com sucesso", event.ID))
+					logger.Log(fmt.Sprintf("✔️ Event %s updated successfully", event.ID))
 					return event.ID, nil
 				})
 			}
@@ -250,9 +250,9 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 
 		updateEventfanInFunc := func(ctx context.Context, results []string) (string, error) {
 			for _, result := range results {
-				logger.Log(fmt.Sprintf("FanOutTask: Resultado recebido: %s", result))
+				logger.Log(fmt.Sprintf("FanOutTask: Result received: %s", result))
 			}
-			logger.Log("FanOutTask: Consolidando resultados...")
+			logger.Log("FanOutTask: Consolidating results...")
 			return "success", nil
 		}
 
@@ -262,7 +262,7 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 			FanIn:    updateEventfanInFunc,
 		}
 
-		// Converte o FanOutTask em um Task normal
+		// Convert FanOutTask to a normal Task
 		fanOutUpdateOfferTask := updateOfferfanOutTask.ToTask().After(sendToChannel)
 		fanOutUpdateEventTask := updateEventfanOutTask.ToTask().After(sendToChannel)
 

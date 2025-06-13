@@ -9,21 +9,21 @@ import (
 	"github.com/josuedeavila/taskflow"
 )
 
-// PipelineConfig define a configuração para uma pipeline específica
+// PipelineConfig defines the configuration for a specific pipeline
 type PipelineConfig struct {
-	Name            string                                                   // Nome identificador da pipeline
-	Interval        time.Duration                                            // Intervalo entre execuções
-	MaxConcurrency  int                                                      // Máximo de execuções simultâneas desta pipeline
-	MaxRetries      int                                                      // Número máximo de tentativas em caso de erro
-	RetryDelay      time.Duration                                            // Delay entre tentativas
-	Timeout         time.Duration                                            // Timeout para cada execução
-	PipelineBuilder func(ctx context.Context) ([]taskflow.Executable, error) // Função que constrói a pipeline
-	OnSuccess       func(ctx context.Context, result any)                    // Callback opcional para sucesso
-	OnError         func(ctx context.Context, err error)                     // Callback opcional para erro
-	Enabled         bool                                                     // Se a pipeline está habilitada
+	Name            string                                                   // Pipeline identifier name
+	Interval        time.Duration                                            // Interval between executions
+	MaxConcurrency  int                                                      // Maximum simultaneous executions of this pipeline
+	MaxRetries      int                                                      // Maximum number of attempts on error
+	RetryDelay      time.Duration                                            // Delay between attempts
+	Timeout         time.Duration                                            // Timeout for each execution
+	PipelineBuilder func(ctx context.Context) ([]taskflow.Executable, error) // Function that builds the pipeline
+	OnSuccess       func(ctx context.Context, result any)                    // Optional callback for success
+	OnError         func(ctx context.Context, err error)                     // Optional callback for error
+	Enabled         bool                                                     // Whether the pipeline is enabled
 }
 
-// PipelineOrchestrator gerencia múltiplas pipelines executando periodicamente
+// PipelineOrchestrator manages multiple pipelines executing periodically
 type PipelineOrchestrator struct {
 	configs    map[string]*PipelineConfig
 	semaphores map[string]chan struct{}
@@ -34,8 +34,7 @@ type PipelineOrchestrator struct {
 	logger     taskflow.Logger
 }
 
-
-// NewPipelineOrchestrator cria uma nova instância do orquestrador
+// NewPipelineOrchestrator creates a new instance of the orchestrator
 func NewPipelineOrchestrator() *PipelineOrchestrator {
 	return &PipelineOrchestrator{
 		configs:    make(map[string]*PipelineConfig),
@@ -46,13 +45,13 @@ func NewPipelineOrchestrator() *PipelineOrchestrator {
 	}
 }
 
-// WithLogger define o logger para o orquestrador
+// WithLogger sets the logger for the orchestrator
 func (o *PipelineOrchestrator) WithLogger(logger taskflow.Logger) *PipelineOrchestrator {
 	o.logger = logger
 	return o
 }
 
-// AddPipeline adiciona uma nova pipeline ao orquestrador
+// AddPipeline adds a new pipeline to the orchestrator
 func (o *PipelineOrchestrator) AddPipeline(config *PipelineConfig) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -84,11 +83,11 @@ func (o *PipelineOrchestrator) AddPipeline(config *PipelineConfig) error {
 	o.configs[config.Name] = config
 	o.semaphores[config.Name] = make(chan struct{}, config.MaxConcurrency)
 
-	o.logger.Log(fmt.Sprintf("Pipeline '%s' adicionada com intervalo de %v", config.Name, config.Interval))
+	o.logger.Log(fmt.Sprintf("Pipeline '%s' added with interval of %v", config.Name, config.Interval))
 	return nil
 }
 
-// RemovePipeline remove uma pipeline do orquestrador
+// RemovePipeline removes a pipeline from the orchestrator
 func (o *PipelineOrchestrator) RemovePipeline(name string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -101,10 +100,10 @@ func (o *PipelineOrchestrator) RemovePipeline(name string) {
 	delete(o.configs, name)
 	delete(o.semaphores, name)
 
-	o.logger.Log(fmt.Sprintf("Pipeline '%s' removida", name))
+	o.logger.Log(fmt.Sprintf("Pipeline '%s' removed", name))
 }
 
-// EnablePipeline habilita uma pipeline
+// EnablePipeline enables a pipeline
 func (o *PipelineOrchestrator) EnablePipeline(name string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -115,11 +114,11 @@ func (o *PipelineOrchestrator) EnablePipeline(name string) error {
 	}
 
 	config.Enabled = true
-	o.logger.Log(fmt.Sprintf("Pipeline '%s' habilitada", name))
+	o.logger.Log(fmt.Sprintf("Pipeline '%s' enabled", name))
 	return nil
 }
 
-// DisablePipeline desabilita uma pipeline
+// DisablePipeline disables a pipeline
 func (o *PipelineOrchestrator) DisablePipeline(name string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -130,11 +129,11 @@ func (o *PipelineOrchestrator) DisablePipeline(name string) error {
 	}
 
 	config.Enabled = false
-	o.logger.Log(fmt.Sprintf("Pipeline '%s' desabilitada", name))
+	o.logger.Log(fmt.Sprintf("Pipeline '%s' disabled", name))
 	return nil
 }
 
-// Start inicia o orquestrador e todas as pipelines habilitadas
+// Start starts the orchestrator and all enabled pipelines
 func (o *PipelineOrchestrator) Start(ctx context.Context) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -147,28 +146,28 @@ func (o *PipelineOrchestrator) Start(ctx context.Context) error {
 		go o.runPipelineLoop(ctx, name, config, ticker)
 	}
 
-	o.logger.Log("Orquestrador iniciado")
+	o.logger.Log("Orchestrator started")
 	return nil
 }
 
-// runPipelineLoop executa o loop principal de uma pipeline
+// runPipelineLoop executes the main loop of a pipeline
 func (o *PipelineOrchestrator) runPipelineLoop(ctx context.Context, name string, config *PipelineConfig, ticker *time.Ticker) {
 	defer o.wg.Done()
 	defer ticker.Stop()
 
-	o.logger.Log(fmt.Sprintf("Iniciando loop da pipeline '%s'", name))
+	o.logger.Log(fmt.Sprintf("Starting loop for pipeline '%s'", name))
 
-	// Executa imediatamente na primeira vez
+	// Execute immediately on first run
 	if config.Enabled {
 		o.schedulePipelineExecution(ctx, name, config)
 	}
 	for {
 		select {
 		case <-ctx.Done():
-			o.logger.Log(fmt.Sprintf("Pipeline '%s' encerrada por contexto", name))
+			o.logger.Log(fmt.Sprintf("Pipeline '%s' terminated by context", name))
 			return
 		case <-o.shutdown:
-			o.logger.Log(fmt.Sprintf("Pipeline '%s' encerrada por shutdown", name))
+			o.logger.Log(fmt.Sprintf("Pipeline '%s' terminated by shutdown", name))
 			return
 		case <-ticker.C:
 			if !config.Enabled {
@@ -179,7 +178,7 @@ func (o *PipelineOrchestrator) runPipelineLoop(ctx context.Context, name string,
 	}
 }
 
-// schedulePipelineExecution agenda a execução de uma pipeline
+// schedulePipelineExecution schedules the execution of a pipeline
 func (o *PipelineOrchestrator) schedulePipelineExecution(ctx context.Context, name string, config *PipelineConfig) {
 	select {
 	case o.semaphores[name] <- struct{}{}:
@@ -188,15 +187,15 @@ func (o *PipelineOrchestrator) schedulePipelineExecution(ctx context.Context, na
 			o.executePipeline(ctx, name, config)
 		}()
 	default:
-		o.logger.Log(fmt.Sprintf("Pipeline '%s' pulada - limite de concorrência atingido", name))
+		o.logger.Log(fmt.Sprintf("Pipeline '%s' skipped - concurrency limit reached", name))
 	}
 }
 
-// executePipeline executa uma pipeline com retry e timeout
+// executePipeline executes a pipeline with retry and timeout
 func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string, config *PipelineConfig) {
 
 	var lastErr error
-	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
+	for attempt := 1; attempt <= config.MaxRetries; attempt++ {
 		pipelineCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 
 		result, err := o.runSinglePipeline(pipelineCtx, name, config)
@@ -207,19 +206,19 @@ func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string,
 				config.OnSuccess(ctx, result)
 			}
 
-			o.logger.Log(fmt.Sprintf("Pipeline '%s' executada com sucesso (tentativa %d/%d)", name, attempt+1, config.MaxRetries+1))
+			o.logger.Log(fmt.Sprintf("Pipeline '%s' executed successfully (attempt %d/%d)", name, attempt+1, config.MaxRetries+1))
 			return
 		}
 
 		lastErr = err
-		o.logger.Log(fmt.Sprintf("Pipeline '%s' falhou na tentativa %d/%d: %v", name, attempt+1, config.MaxRetries+1, err))
+		o.logger.Log(fmt.Sprintf("Pipeline '%s' failed on attempt %d/%d: %v", name, attempt+1, config.MaxRetries+1, err))
 
 		if attempt < config.MaxRetries {
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(config.RetryDelay):
-				// Continua para a próxima tentativa
+				// Continue to next attempt
 			}
 		}
 	}
@@ -228,20 +227,20 @@ func (o *PipelineOrchestrator) executePipeline(ctx context.Context, name string,
 		config.OnError(ctx, lastErr)
 	}
 
-	o.logger.Log(fmt.Sprintf("Pipeline '%s' falhou após todas as tentativas: %v", name, lastErr))
+	o.logger.Log(fmt.Sprintf("Pipeline '%s' failed after all attempts: %v", name, lastErr))
 }
 
-// runSinglePipeline executa uma única instância da pipeline
+// runSinglePipeline executes a single instance of the pipeline
 func (o *PipelineOrchestrator) runSinglePipeline(ctx context.Context, name string, config *PipelineConfig) (any, error) {
-	o.logger.Log(fmt.Sprintf("Executando pipeline '%s'", name))
+	o.logger.Log(fmt.Sprintf("Executing pipeline '%s'", name))
 
 	tasks, err := config.PipelineBuilder(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao construir pipeline '%s': %w", name, err)
+		return nil, fmt.Errorf("error building pipeline '%s': %w", name, err)
 	}
 
 	if len(tasks) == 0 {
-		return nil, fmt.Errorf("pipeline '%s' não possui tarefas", name)
+		return nil, fmt.Errorf("pipeline '%s' has no tasks", name)
 	}
 
 	runner := taskflow.NewRunner()
@@ -249,10 +248,10 @@ func (o *PipelineOrchestrator) runSinglePipeline(ctx context.Context, name strin
 
 	err = runner.Run(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("erro na execução da pipeline '%s': %w", name, err)
+		return nil, fmt.Errorf("error executing pipeline '%s': %w", name, err)
 	}
 
-	// Retorna o resultado da última tarefa
+	// Return the result of the last task
 	if len(tasks) > 0 {
 		t := tasks[len(tasks)-1]
 		return t.GetResult(), nil
@@ -261,28 +260,9 @@ func (o *PipelineOrchestrator) runSinglePipeline(ctx context.Context, name strin
 	return nil, nil
 }
 
-// GetPipelineStatus retorna o status de uma pipeline específica
-func (o *PipelineOrchestrator) GetPipelineStatus(name string) (map[string]interface{}, error) {
-	o.mu.RLock()
-	config, exists := o.configs[name]
-	o.mu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("pipeline '%s' not found", name)
-	}
-
-	return map[string]interface{}{
-		"name":            config.Name,
-		"enabled":         config.Enabled,
-		"interval":        config.Interval,
-		"max_concurrency": config.MaxConcurrency,
-		"max_retries":     config.MaxRetries,
-	}, nil
-}
-
-// Shutdown encerra graciosamente o orquestrador
+// Shutdown gracefully shuts down the orchestrator
 func (o *PipelineOrchestrator) Shutdown(timeout time.Duration) error {
-	o.logger.Log("Iniciando shutdown do orquestrador...")
+	o.logger.Log("Starting orchestrator shutdown...")
 
 	close(o.shutdown)
 
@@ -294,14 +274,14 @@ func (o *PipelineOrchestrator) Shutdown(timeout time.Duration) error {
 
 	select {
 	case <-done:
-		o.logger.Log("Orquestrador encerrado com sucesso")
+		o.logger.Log("Orchestrator shutdown completed successfully")
 		return nil
 	case <-time.After(timeout):
-		return fmt.Errorf("timeout no shutdown do orquestrador")
+		return fmt.Errorf("orchestrator shutdown timeout")
 	}
 }
 
-// ListPipelines retorna a lista de pipelines configuradas
+// ListPipelines returns the list of configured pipelines
 func (o *PipelineOrchestrator) ListPipelines() []string {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
