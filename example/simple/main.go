@@ -32,10 +32,10 @@ func main() {
 	// Monitoring pipeline (initially disabled)
 	updateOfferConfig := &orchestrator.PipelineConfig{
 		Name:            "update_offer",
-		Interval:        10 * time.Second,
+		Interval:        20 * time.Second,
 		MaxConcurrency:  1,
-		MaxRetries:      2,
-		Timeout:         10 * time.Second,
+		MaxRetries:      1,
+		Timeout:         100 * time.Second,
 		Enabled:         false,
 		PipelineBuilder: buildPipeline(logger),
 		OnSuccess: func(ctx context.Context, result any) {
@@ -93,26 +93,36 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 	client := http.DefaultClient
 	return func(ctx context.Context) ([]taskflow.Executable, error) {
 		getEvents := taskflow.NewTask("get_events", func(ctx context.Context, _ any) ([]*Event, error) {
-			logger.Log("🔍 Fetching events")
-			time.Sleep(2 * time.Second) // Simulate delay in fetching events
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/events", nil)
+
+			inner := func(ctx context.Context) error {
+				logger.Log("🔍 Fetching events")
+				time.Sleep(2 * time.Second) // Simulate delay in fetching events
+
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/events", nil)
+				if err != nil {
+					logger.Log(fmt.Sprintf("❌ Error creating request: %v", err))
+					return err
+				}
+				res, err := client.Do(req)
+				if err != nil {
+					logger.Log(fmt.Sprintf("❌ Error fetching events: %v", err))
+					return err
+				}
+				defer res.Body.Close()
+				if res.StatusCode != http.StatusOK {
+					err := fmt.Errorf("status %d when fetching events", res.StatusCode)
+					logger.Log(fmt.Sprintf("❌ Error fetching events: %v", err))
+					return err
+				}
+				logger.Log("✅ Events obtained successfully")
+				return nil
+			}
+
+			err := taskflow.Retry(ctx, inner, 3, 2*time.Second)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Error creating request: %v", err))
 				return nil, err
 			}
-			res, err := client.Do(req)
-			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Error fetching events: %v", err))
-				return nil, err
-			}
-			defer res.Body.Close()
-			if res.StatusCode != http.StatusOK {
-				err := fmt.Errorf("status %d when fetching events", res.StatusCode)
-				logger.Log(fmt.Sprintf("❌ Error fetching events: %v", err))
-				return nil, err
-			}
-			logger.Log("✅ Events obtained successfully")
-			// Simulate event processing
+
 			return []*Event{
 				{ID: "1", Name: "Event 1", OfferID: "offer-123"},
 				{ID: "2", Name: "Event 2", OfferID: "offer-456"},
@@ -121,26 +131,34 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 		})
 
 		getCredentials := taskflow.NewTask("get_credentials", func(ctx context.Context, events []*Event) (*EventsAndCredentials, error) {
-			logger.Log("🔍 Fetching credentials")
-			time.Sleep(2 * time.Second)
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/credentials", nil)
-			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Error creating request: %v", err))
-				return nil, err
+			inner := func(ctx context.Context) error {
+				logger.Log("🔍 Fetching credentials")
+				time.Sleep(2 * time.Second)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/credentials", nil)
+				if err != nil {
+					logger.Log(fmt.Sprintf("❌ Error creating request: %v", err))
+					return err
+				}
+
+				res, err := client.Do(req)
+				if err != nil {
+					logger.Log(fmt.Sprintf("❌ Error fetching credentials: %v", err))
+					return err
+				}
+				defer res.Body.Close()
+				if res.StatusCode != http.StatusOK {
+					err := fmt.Errorf("status %d when fetching credentials", res.StatusCode)
+					logger.Log(fmt.Sprintf("❌ Error fetching credentials: %v", err))
+					return err
+				}
+				logger.Log("✅ Credentials obtained successfully")
+				return nil
 			}
 
-			res, err := client.Do(req)
+			err := taskflow.Retry(ctx, inner, 3, 2*time.Second)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Error fetching credentials: %v", err))
 				return nil, err
 			}
-			defer res.Body.Close()
-			if res.StatusCode != http.StatusOK {
-				err := fmt.Errorf("status %d when fetching credentials", res.StatusCode)
-				logger.Log(fmt.Sprintf("❌ Error fetching credentials: %v", err))
-				return nil, err
-			}
-			logger.Log("✅ Credentials obtained successfully")
 
 			var creds Credentials
 			// Simulate credential filling
@@ -152,28 +170,36 @@ func buildPipeline(logger taskflow.Logger) func(ctx context.Context) ([]taskflow
 		}).After(getEvents)
 
 		sendToChannel := taskflow.NewTask("send_to_channel", func(ctx context.Context, input *EventsAndCredentials) ([]*Event, error) {
-			logger.Log("📤 Sending events to channel")
-			time.Sleep(2 * time.Second)
-			b, err := json.Marshal(input.Events)
+			inner := func(ctx context.Context) error {
+				logger.Log("📤 Sending events to channel")
+				time.Sleep(2 * time.Second)
+				b, err := json.Marshal(input.Events)
+				if err != nil {
+					logger.Log(fmt.Sprintf("❌ Error serializing events: %v", err))
+					return err
+				}
+				req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:8080/send", bytes.NewBuffer(b))
+				req.Header.Set("Authorization", "Bearer "+input.Credentials.Token)
+				res, err := client.Do(req)
+				if err != nil {
+					logger.Log(fmt.Sprintf("❌ Error sending events: %v", err))
+					return err
+				}
+				defer res.Body.Close()
+				if res.StatusCode != http.StatusOK {
+					err := fmt.Errorf("status %d when sending events", res.StatusCode)
+					logger.Log(fmt.Sprintf("❌ Error sending events: %v", err))
+					return err
+				}
+				logger.Log("✅ Events sent successfully")
+				// Simulate successful sending
+				return nil
+			}
+
+			err := taskflow.Retry(ctx, inner, 3, 2*time.Second)
 			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Error serializing events: %v", err))
 				return nil, err
 			}
-			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:8080/send", bytes.NewBuffer(b))
-			req.Header.Set("Authorization", "Bearer "+input.Credentials.Token)
-			res, err := client.Do(req)
-			if err != nil {
-				logger.Log(fmt.Sprintf("❌ Error sending events: %v", err))
-				return nil, err
-			}
-			defer res.Body.Close()
-			if res.StatusCode != http.StatusOK {
-				err := fmt.Errorf("status %d when sending events", res.StatusCode)
-				logger.Log(fmt.Sprintf("❌ Error sending events: %v", err))
-				return nil, err
-			}
-			logger.Log("✅ Events sent successfully")
-			// Simulate successful sending
 
 			return input.Events, nil
 		}).After(getCredentials)

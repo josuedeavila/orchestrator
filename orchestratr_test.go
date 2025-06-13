@@ -170,14 +170,14 @@ func TestListPipelines(t *testing.T) {
 func TestStartAndShutdown(t *testing.T) {
 	o := orchestrator.NewPipelineOrchestrator()
 
-	var called atomic.Bool
+	var count int32
 	var successCallback atomic.Bool
 
 	_ = o.AddPipeline(&orchestrator.PipelineConfig{
 		Name:     "p-runner",
 		Interval: 10 * time.Millisecond,
 		PipelineBuilder: func(ctx context.Context) ([]taskflow.Executable, error) {
-			called.Store(true)
+			atomic.AddInt32(&count, 1)
 			return []taskflow.Executable{newDummyTask("ok")}, nil
 		},
 		MaxRetries: 1,
@@ -202,8 +202,8 @@ func TestStartAndShutdown(t *testing.T) {
 		t.Errorf("unexpected error on shutdown: %v", err)
 	}
 
-	if !called.Load() {
-		t.Errorf("expected pipeline to run at least once")
+	if atomic.LoadInt32(&count) != 1 {
+		t.Errorf("expected exacly 1 execution, got %d", count)
 	}
 
 	if !successCallback.Load() {
@@ -243,8 +243,8 @@ func TestPipelineRetry(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 	_ = o.Shutdown(1 * time.Second)
 
-	if atomic.LoadInt32(&count) < 2 {
-		t.Errorf("expected at least 2 retries, got %d", count)
+	if atomic.LoadInt32(&count) != 2 {
+		t.Errorf("expected exacly 2 retries, got %d", count)
 	}
 	if !errorCallbackCalled.Load() {
 		t.Errorf("expected OnError callback to be called")
